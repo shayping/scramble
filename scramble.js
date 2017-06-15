@@ -1,3 +1,5 @@
+/* global html2canvas */
+/* global Image */
 var incanvas = document.getElementById('inCanvas');
 var context = incanvas.getContext('2d');
 var imageObj = new Image();
@@ -5,39 +7,77 @@ var rawData;
 
 imageObj.onload = function() {
  context.drawImage(imageObj, 0, 0);
- rawData = context.getImageData(0, 0, 578, 400);
+ rawData = context.getImageData(0, 0, 410, 400);
  var mean, median;
  var valrange = [];
- //console.dir(rawData);
- for (var i = 0; i < rawData.data.length; i += 4) {
-  var luma = 0.299 * rawData.data[i] +
-   0.587 * rawData.data[1 + 1] +
-   0.114 * rawData.data[i + 2];
-  rawData.data[i] = luma;
-  rawData.data[i + 1] = luma;
-  rawData.data[i + 2] = luma;
-  valrange.push(luma);
- }
- valrange.sort();
- mean = valrange.reduce((pv, cv) => pv + cv, 0) / valrange.length;
- median = valrange[Math.floor(valrange.length / 2)];
- var q60 = valrange[Math.floor(valrange.length / 10) * 6]
- console.log('mean = ' + mean);
- console.log('median = ' + median);
- for (var i = 0; i < rawData.data.length; i += 4) {
-  if (rawData.data[i] > q60) {
-   rawData.data[i] = 255;
-   rawData.data[i + 1] = 255;
-   rawData.data[i + 2] = 255;
-  }
- }
- context.putImageData(rawData, 0, 0);
  var o = psnr(rawData.data, rawData.data.map(x => x + 10), 4);
  console.log('psnr == ' + o);
 };
 // imageObj.crossOrigin = 'Anonymous';
 imageObj.src = 'mebw.jpg';
 
+/// --------------------------------------------------
+// Populate the div
+var thediv = document.getElementById('thediv');
+var txt = "The heights that great men#"+
+ "reached and kept,#"+
+ "were not achieved by sudden flights.#"+
+ "But while the companions#"+ 
+ "lay a sleep,#"+
+ "they were toiling through the night."
+
+
+// Add divs
+function addDiv(d, txt) {
+ var x=0.5, y=1.1;
+
+ var s = new Set(['f','i','j','l','r','t']);
+ var ss = new Set(['w','m']);
+ function w(t) {
+  if (s.has(t)) return 0.35;
+  if (ss.has(t)) return 0.78;
+  return 0.62;
+ }
+ 
+ for (var i=0; i < txt.length; i++) {
+  if (txt[i] == '#') {
+   x = 0.5; y +=1;
+   continue;
+  } 
+  
+  var e = document.createElement('div');
+  var t = txt[i];
+  e.innerText=t;
+  e.style.position = 'absolute';
+  e.style.left = x + 'em';
+  //if (x==0 && i !=0) {
+   e.style.top = y + 'em';
+   //e.style.position = 'relative';
+  //}
+  d.appendChild(e);
+ 
+  x = x +  w(t);
+ }
+}
+
+
+addDiv(thediv, txt);
+
+
+
+// Start random jitter
+function scrambleEgg(d, c, w, h) {
+ var divs = d.children;
+ 
+}
+// Save div as img
+html2canvas(thediv,
+ {
+  onrendered: function(c) {
+   document.body.appendChild(c);
+  }
+ }
+)
 
 
 //-------------------------------------------------------
