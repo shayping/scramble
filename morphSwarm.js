@@ -1,86 +1,199 @@
 /**
- * Morphs the source into an approximation of the given destination img.
- * The source can be an array of svg objects, or dom elements.
- * e.g. an array of points, or array of divs
- * 
- * 
- * 
- */ 
+ * morphSwarn 
+ * Requires jQuery adn html2canvas
+ */
  
+ /*global $*/
+ /*global html2canvas*/
  
- /**
-  * ref Array(rgba) the is the reference image we want to morph into
-  * src JQuery selection of the parent Div we want to morph
-  * 
-  * The width and height of ref and src should match. 
-  **/
- function morph(ref, $src, width, height, src2ImgFn) {
-   var snr;
-   $.when(src2ImgFn($src[0], width, height))
-   .then(function (v) {
-    snr = psnr(ref, v, 4);      
-   }).then(function() {
-   
-    var divs = $src.children();
-   
-    for (var n=0; n<divs.length; n++) {
-      var candidate = divs[n];  
-      var pos = candidate.postion();
-      var numIter = 0;
-      var maxIter = 100;
-     
-      for(var it=0; it < maxIter; it++) {
-        var newX = Math.floor(Math.random() * width);
-        var newY = Math.floor(Math.random() * height);
-       
-        candidate.css({left: newX+'px', top: newY + 'px'})
-        ////// Need to refactor with deferreds
-         var temp_snr = psnr(ref, src2ImgFn($src[0], width, height), 4);
-       
-         if (temp_snr > snr) {
-           snr = temp_snr;
-           break;
-         } else {
-           candidate.css(pos);
-         }
-       } 
-       console.log('Done with div ' + n);     
-     }
-   })
- }
+var morphSwarm = {};
 
+morphSwarm.util = {};
 
-
-
- // ----
- function _divsToImg(theDiv, width, height) {
-    var d = $.Deferred();
-    html2canvas(thediv, {
-        onrendered: function(newCanvas) {
-            var context = newCanvas.getContext('2d');
-            var rawData = context.getImageData(0, 0, width, height);  
-            d.resolve(rawData);
-        }
-    })   
-
-
-    return d.promise();
+/**
+ * Given 2 1-d array buffers of equal lengths, compute the mean sq error
+ * between the buffers.
+ * @param Array buf1
+ * @param Array buf2
+ * @param int step - Step = 1 means to compare every element in buf1 & buf2.
+ *                   Step = 2 means to increment by 2 (i.e skip every other) etc.
+ *                   defaults to 1. e.g. 
+ */
+morphSwarm.util.mse = function(buf1, buf2, step) {
+ step = step || 1; // Use step 4 for greyscale
+ if ((buf1.length) != (buf2.length)) {
+  throw new Error('Buffers given to mse must be of equal lengths.')
  }
  
- 
-function mse(buf1, buf2, step) {
  var err;
  var errSum = 0;
- step = step || 1; // Use step 4 for greyscale
  for (var i = 0; i < buf1.length; i += step) {
   err = buf1[i] - buf2[i];
   errSum += err * err;
  }
  return errSum / buf1.length / step;
-}
+};
 
-function psnr(buf1, buf2, step) {
- // Infinity means image is identical
- var max = 255 * 255;
- return 10 * Math.log10(max / mse(buf1, buf2, step))
+/**
+ * Given 2 1-d array buffers of equal lengths, compute the snr between the two
+ * buffers that represent images. Return of Infinity => image is identical.
+ * @param Array buf1
+ * @param Array buf2
+ * @param int step - Step = 1 means to compare every element in buf1 & buf2.
+ *                   Step = 2 means to increment by 2 (i.e skip every other) etc.
+ *                   defaults to 1. e.g. 
+ */
+morphSwarm.util.psnr = function(buf1, buf2, step) {
+ step = step || 1; // Use step 4 for greyscale
+ if ((buf1.length) != (buf2.length)) {
+  throw new Error('Buffers given to psnr must be of equal lengths.')
+ }
+ 
+ // At rgba px level.
+ var maxMSE = 255 * 255; 
+ return 10 * Math.log10(maxMSE / morphSwarm.util.mse(buf1, buf2, step))
+};
+
+
+/**
+ * Given a div, use html5's canvas context to get the raw image data. Returns
+ * a promise since this is an async process.
+ * @param $div JQueryObject Of a div, with width and height set
+ */
+morphSwarm.util.asRawImage = function($div) {
+ var w = $div.width();
+ var h = $div.height();
+ if (!w && !h) throw new Error('Width or height not present for div!');
+ 
+ var d = $.Deferred();
+ html2canvas($div[0], {
+   onrendered: function(newCanvas) {
+     var context = newCanvas.getContext('2d');
+     var rawData = context.getImageData(0, 0, w, h);  
+     d.resolve(rawData.data);
+   }
+  });   
+
+ return d.promise();
+};
+
+
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Functions for creating the endFrame for morphing a div into an image
+
+
+/**
+ * @param refBuf is expected to a rgba buffer of the image we want to morph to
+ * @param $srcDiv Is the parent div, who's child divs we want to jitter and 
+ *                morph into an approximation of refBuf
+ * @param maxIter Optional int to limit the max number of tries.
+ */ 
+morphSwarm.createSwarm = {};
+
+morphSwarm.createSwarm.calcPSNR = function(refBuf, $srcDiv) {
+  var d = $.Deferred();
+  
+  var p = morphSwarm.util.asRawImage($srcDiv);
+  p.then(function(data) {
+   var psnr = morphSwarm.util.psnr(refBuf, data, 4); 
+   d.resolve(psnr);
+  });
+  
+  
+  return d.promise();
+};
+
+morphSwarm.createSwarm.placeDiv = function(refBuf, $srcDiv, $childDiv, snr, maxIter, rndW, rndH) {
+ var d = $.Deferred();
+ 
+ var bestSNR = snr;
+ var bestPosition = $childDiv.position();
+ var done = false;
+ 
+ var forChainDef = $.Deferred();
+ var forChain = forChainDef.promise();
+ 
+ for (var t = 0; t < maxIter; t++) {
+  if (t == maxIter)  { forChainDef.resolve(); }
+  else {
+    forChain.then(function() {
+      if (done) {
+       forChainDef.resolve() 
+      } else {
+        var newTop = rndH();
+        var newLeft = rndW();
+        $childDiv.css({top: newTop+'px', left: newLeft+'px'});
+  
+        morphSwarm.createSwarm.calcPSNR(refBuf, $srcDiv).then(
+          function(newSNR) {
+            if (newSNR > bestSNR) {
+             done = true;
+             bestSNR = newSNR;
+             forChain.done();
+            } else {
+             // Reset and try again
+             $childDiv.css({top: bestPosition.top +'px', left: bestPosition.left +'px'});
+             forChain.done();
+            }
+        });
+      } 
+    });
+   }  
+ } 
+ 
+ forChain.then(
+  function() { d.resolve(bestSNR) }
+ );
+ 
+ forChain.resolve(); // To start it off
+ 
+ return d.promise();
+};
+
+
+morphSwarm.createSwarm.build = function(refBuf, $srcDiv, maxIter) {
+ maxIter = maxIter || 100;
+ var w = $srcDiv.width();
+ var h = $srcDiv.height();
+ var rndW = function() {return Math.round(Math.random() * w)};
+ var rndH = function() {return Math.round(Math.random() * h)};
+ 
+ var snr = Infinity;
+ var childDivs = $srcDiv.children();
+ childDivs.detach();
+ 
+ // Init
+ var prom = morphSwarm.createSwarm.calcPSNR(refBuf, $srcDiv);
+ var d = $.Deferred();
+ 
+ prom.then(
+  function(newPSNR) {
+    snr = newPSNR;
+    d.resolve();
+  }
+ )
+ 
+ d.then(
+   function() {
+      var $child = $(childDivs[0]);
+      $child.appendTo($srcDiv);
+ 
+      return morphSwarm.createSwarm.placeDiv(refBuf, $srcDiv, $child,
+                                             snr, maxIter, rndW, rndH
+      );
+   }
+ ).then(function(){
+  console.log('done!!!!!!!')
+ }
+ );
+ 
+ 
+ 
+ 
+  return d.promise();
 }
+ 
+ 
+ 
+ 

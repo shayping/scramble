@@ -1,23 +1,21 @@
 /* global html2canvas */
 /* global Image */
+/* glboal $*/
+
 var incanvas = document.getElementById('inCanvas');
 var context = incanvas.getContext('2d');
 var imageObj = new Image();
 var rawData;
 
-var d = $Deferred();
+var d = $.Deferred();
 imageObj.onload = function() {
  context.drawImage(imageObj, 0, 0);
- rawData = context.getImageData(0, 0, 410, 400);
- //var mean, median;
- //var valrange = [];
- //var o = psnr(rawData.data, rawData.data.map(x => x + 10), 4);
- //console.log('psnr == ' + o);
+ rawData = context.getImageData(0, 0, 400, 600);
  d.resolve();
 };
 
 // imageObj.crossOrigin = 'Anonymous';
-imageObj.src = 'mebw.jpg';
+imageObj.src = 'contemplate.jpg';
 
 /// --------------------------------------------------
 // Populate the div
@@ -69,9 +67,12 @@ function addDiv(d, txt) {
 
 addDiv(thediv, txt);
 
-// Start The morphing.
-d.promise().done(function() {
- morph(rawData, $('div[id="thediv"]'), 410, 400, _divsToImg);
+d.done(function(){
+ var $srcDiv = $('div[id="thediv"]');
+ morphSwarm.createSwarm.build(rawData.data, $srcDiv);
 });
+
+
+
 
 
