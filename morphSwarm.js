@@ -104,7 +104,7 @@ morphSwarm.createSwarm.calcPSNR = function(refBuf, $srcDiv) {
   return d.promise();
 };
 
-morphSwarm.createSwarm.placeDiv = function(refBuf, $srcDiv, $childDiv, snr, maxIter, rndW, rndH) {
+morphSwarm.createSwarm.placeDiv___ = function(refBuf, $srcDiv, $childDiv, snr, maxIter, rndW, rndH) {
  var d = $.Deferred();
  
  var bestSNR = snr;
@@ -152,7 +152,67 @@ morphSwarm.createSwarm.placeDiv = function(refBuf, $srcDiv, $childDiv, snr, maxI
 };
 
 
+morphSwarm.createSwarm.placeDiv = function(refBuf, $srcDiv, $childDiv, snr, maxIter, rndW, rndH) {
+  var d = $.Deferred();
+  var bestSNR = snr;
+  var bestPosition = $childDiv.position();
+  var done = false;
+ 
+  // Loop up to maxIter or until we find a position which improves the snr.
+  var d2 = $.Deferred();
+  function doIteration(n) {
+   var newTop = rndH();
+   var newLeft = rndW();
+   $childDiv.css({top: newTop+'px', left: newLeft+'px'});
+   var _d = $.Deferred();
+   
+   if (done) {
+     _d.reject();
+   } else {
+     var p = morphSwarm.createSwarm.calcPSNR(refBuf, $srcDiv);
+     p.then(
+       function(newSNR) {
+         console.log('running iteration ' + n);
+         console.log('  newSNR = ' + newSNR);
+         console.log('  bestSNR = ' + bestSNR);
+         if (newSNR > bestSNR) {
+           done = true;
+           bestSNR = newSNR;
+           console.log('Accepting snr = ' + newSNR);
+           _d.resolve();
+         } else {
+           // Reset and try again
+           $childDiv.css({top: bestPosition.top +'px', left: bestPosition.left +'px'});
+           console.log('Rejecting');
+           _d.reject();
+         }
+       });
+    }
+    
+    return _d.promise();
+  }
+ 
+  for (var t=0; t < maxIter; t++) {
+    d2.then(doIteration(t))
+  }
+  
+  d2.done(
+    function() {
+      console.log('d2 done!');
+      d.resolve();
+  });
+  d2.fail(
+    function() {d.reject()}
+  );
+  
+ 
+  return d.promise();
+};
+
+
+
 morphSwarm.createSwarm.build = function(refBuf, $srcDiv, maxIter) {
+ console.log('Starting');  
  maxIter = maxIter || 100;
  var w = $srcDiv.width();
  var h = $srcDiv.height();
@@ -168,8 +228,9 @@ morphSwarm.createSwarm.build = function(refBuf, $srcDiv, maxIter) {
  var d = $.Deferred();
  
  prom.then(
-  function(newPSNR) {
+  function(newPSNR) { 
     snr = newPSNR;
+    console.log('Initial psnr = ' + snr);
     d.resolve();
   }
  )
@@ -185,11 +246,9 @@ morphSwarm.createSwarm.build = function(refBuf, $srcDiv, maxIter) {
    }
  ).then(function(){
   console.log('done!!!!!!!')
- }
- );
+ });
  
- 
- 
+
  
   return d.promise();
 }
